@@ -84,6 +84,14 @@ export const initDB = async () => {
             CREATE INDEX IF NOT EXISTS idx_orders_user_email ON orders(user_email);
             CREATE INDEX IF NOT EXISTS idx_orders_order_id   ON orders(order_id);
             CREATE INDEX IF NOT EXISTS idx_orders_status     ON orders(status);
+
+            -- Configuración de la tienda: visibilidad de juegos / pestañas /
+            -- productos gestionada desde el panel de admin (clave → booleano).
+            CREATE TABLE IF NOT EXISTS site_config (
+                key        VARCHAR(160) PRIMARY KEY,
+                value      JSONB       NOT NULL,
+                updated_at TIMESTAMP   DEFAULT NOW()
+            );
         `);
         console.log('✅ Base de datos inicializada correctamente');
     } catch (err) {
