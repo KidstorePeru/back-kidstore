@@ -1,2 +1,7 @@
 node_modules/
 .env
+
+# helpers de desarrollo local (no se despliegan)
+local-mock.mjs
+local-mock-data.json
+local-mock.log
