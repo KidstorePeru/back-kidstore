@@ -109,7 +109,8 @@ export const getAllOrdersController = async (req, res) => {
     );
 
     const orders = result.rows.map(row => ({
-      orderId:       row.order_id,
+      id:            String(row.id),          // PK interna — clave estable para cambiar estado
+      orderId:       row.order_id,            // número de pedido visible al cliente
       userEmail:     row.user_email,
       total:         parseFloat(row.total),
       currency:      row.currency,
@@ -129,28 +130,62 @@ export const getAllOrdersController = async (req, res) => {
 };
 
 /* ══════════════════════════════════════════
+   USUARIOS REGISTRADOS (tabla users)
+══════════════════════════════════════════ */
+export const getRegisteredUsersController = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, email, phone, created_at
+         FROM users
+       ORDER BY created_at DESC`
+    );
+
+    const users = result.rows.map(u => ({
+      id:        String(u.id),
+      username:  u.username,
+      email:     u.email,
+      phone:     u.phone || null,
+      createdAt: u.created_at,
+      registered: true,
+    }));
+
+    res.status(200).json({ success: true, users });
+  } catch (err) {
+    console.error('❌ Error obteniendo usuarios:', err.message);
+    res.status(500).json({ success: false, error: 'Error al obtener usuarios.' });
+  }
+};
+
+/* ══════════════════════════════════════════
    ACTUALIZAR ESTADO
    El cliente lo ve en tiempo real desde su historial
 ══════════════════════════════════════════ */
 export const adminUpdateStatusController = async (req, res) => {
-  const { orderId, status } = req.body;
+  const { id, orderId, status } = req.body;
   const validStatuses = ['pending', 'processing', 'delivered', 'cancelled'];
 
-  if (!orderId || !status) {
-    return res.status(400).json({ success: false, error: 'orderId y status son requeridos.' });
+  if ((!id && !orderId) || !status) {
+    return res.status(400).json({ success: false, error: 'id (o orderId) y status son requeridos.' });
   }
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ success: false, error: `Estado inválido. Valores: ${validStatuses.join(', ')}` });
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE orders
-       SET status = $1, updated_at = NOW()
-       WHERE order_id = $2
-       RETURNING order_id, status, user_email, updated_at`,
-      [status, orderId]
-    );
+    // Preferir la PK interna: order_id puede repetirse entre clientes.
+    const result = id
+      ? await pool.query(
+          `UPDATE orders SET status = $1, updated_at = NOW()
+           WHERE id = $2
+           RETURNING id, order_id, status, user_email, updated_at`,
+          [status, id]
+        )
+      : await pool.query(
+          `UPDATE orders SET status = $1, updated_at = NOW()
+           WHERE order_id = $2
+           RETURNING id, order_id, status, user_email, updated_at`,
+          [status, orderId]
+        );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Pedido no encontrado.' });
@@ -158,7 +193,7 @@ export const adminUpdateStatusController = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Pedido #${orderId} → "${status}"`,
+      message: `Pedido #${result.rows[0].order_id} → "${status}"`,
       order:   result.rows[0],
     });
   } catch (err) {

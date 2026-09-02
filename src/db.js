@@ -70,6 +70,26 @@ export const initDB = async () => {
                 END IF;
             END $$;
 
+            -- Migración anti-duplicados: si aún no existe la restricción única,
+            -- borrar los pedidos duplicados (mismo email + order_id, se conserva
+            -- el más antiguo — order_items cae en cascada) y añadir la restricción.
+            -- Sin esto, el ON CONFLICT del INSERT de pedidos nunca se dispara y
+            -- cada reintento del checkout crea una fila nueva.
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'orders_user_email_order_id_key'
+                ) THEN
+                    DELETE FROM orders a
+                        USING orders b
+                        WHERE a.id > b.id
+                          AND a.user_email = b.user_email
+                          AND a.order_id  = b.order_id;
+                    ALTER TABLE orders
+                        ADD CONSTRAINT orders_user_email_order_id_key UNIQUE (user_email, order_id);
+                END IF;
+            END $$;
+
             -- Items de pedidos
             CREATE TABLE IF NOT EXISTS order_items (
                 id          SERIAL PRIMARY KEY,

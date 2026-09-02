@@ -1,5 +1,6 @@
 // src/controllers/orders.controller.js
 import pool from '../db.js';
+import { sendOrderEmails } from './email.controller.js';
 
 /* ── Guardar orden ── */
 export const saveOrderController = async (req, res) => {
@@ -16,7 +17,7 @@ export const saveOrderController = async (req, res) => {
         const orderResult = await client.query(
             `INSERT INTO orders (order_id, user_email, total, currency, payment_method, status, form_data, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT DO NOTHING
+             ON CONFLICT (user_email, order_id) DO NOTHING
              RETURNING id`,
             [
                 order.orderId,
@@ -30,9 +31,11 @@ export const saveOrderController = async (req, res) => {
             ]
         );
 
+        // Sin fila devuelta = ya existía (reintento del checkout). No es un error
+        // y NO se reenvían los correos.
         if (orderResult.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(200).json({ success: true, message: 'Orden ya registrada.' });
+            return res.status(200).json({ success: true, duplicate: true, message: 'Orden ya registrada.' });
         }
 
         const dbOrderId = orderResult.rows[0].id;
@@ -46,7 +49,21 @@ export const saveOrderController = async (req, res) => {
         }
 
         await client.query('COMMIT');
-        res.status(201).json({ success: true, message: 'Orden guardada correctamente.' });
+        res.status(201).json({ success: true, id: dbOrderId, message: 'Orden guardada correctamente.' });
+
+        // Notificar (cliente + admin) fuera de la transacción y sin bloquear la
+        // respuesta. Si Resend falla se registra pero el pedido ya está guardado.
+        const fd = order.formData || {};
+        sendOrderEmails({
+            email,
+            customerName:  fd.name || email.split('@')[0],
+            orderId:       order.orderId,
+            total:         order.total,
+            currency:      order.currency || 'PEN',
+            paymentMethod: order.paymentMethod,
+            formData:      fd,
+            items:         order.items || [],
+        }).catch(err => console.error('❌ Error enviando correos del pedido:', err?.message || err));
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('❌ Error guardando orden:', err.message);

@@ -3,9 +3,13 @@ import { sendEmail } from '../services/email.service.js';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'no-reply@kidstoreperu.com'; // ← cambia esto en tu .env
 
-export const sendReceiptController = async (req, res) => {
-    const { email, customerName, orderId, total, items, paymentMethod, formData, currency } = req.body;
-
+/**
+ * Construye y envía los dos correos de un pedido (cliente + admin) de forma
+ * independiente: si uno falla, el otro se envía igual y el fallo se registra.
+ * Devuelve { client: bool, admin: bool } indicando cuál se envió.
+ * Nunca lanza — pensado para llamarse sin bloquear la respuesta del pedido.
+ */
+export const sendOrderEmails = async ({ email, customerName, orderId, total, items = [], paymentMethod, formData, currency }) => {
     const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : 'S/';
 
     // ── Filas de productos para el HTML ──
@@ -178,17 +182,33 @@ export const sendReceiptController = async (req, res) => {
         </div>
     `;
 
-    try {
-        // Enviar ambos emails en paralelo
-        await Promise.all([
-            sendEmail(email, `✅ Pedido #${orderId} confirmado – KidStore`, clientHtml),
-            sendEmail(ADMIN_EMAIL, `🛒 Nuevo pedido #${orderId} de ${customerName}`, adminHtml),
-        ]);
+    // Cada correo por separado — un fallo no arrastra al otro.
+    const [clientRes, adminRes] = await Promise.allSettled([
+        sendEmail(email, `✅ Pedido #${orderId} confirmado – KidStore`, clientHtml, email),
+        sendEmail(ADMIN_EMAIL, `🛒 Nuevo pedido #${orderId} de ${customerName}`, adminHtml, email),
+    ]);
 
-        res.status(200).json({ success: true, message: 'Recibo enviado correctamente' });
+    if (clientRes.status === 'rejected') {
+        console.error(`❌ Email al cliente (${email}) falló:`, clientRes.reason?.message || clientRes.reason);
+    }
+    if (adminRes.status === 'rejected') {
+        console.error(`❌ Email al ADMIN (${ADMIN_EMAIL}) falló — pedido #${orderId}:`, adminRes.reason?.message || adminRes.reason);
+    } else {
+        console.log(`📧 Aviso de pedido #${orderId} enviado al admin (${ADMIN_EMAIL})`);
+    }
+
+    return { client: clientRes.status === 'fulfilled', admin: adminRes.status === 'fulfilled' };
+};
+
+/* ── Ruta POST /send-receipt (compatibilidad; el checkout ya no la necesita
+      porque saveOrderController envía los correos al guardar) ── */
+export const sendReceiptController = async (req, res) => {
+    const { email, customerName, orderId, total, items, paymentMethod, formData, currency } = req.body;
+    try {
+        const sent = await sendOrderEmails({ email, customerName, orderId, total, items, paymentMethod, formData, currency });
+        res.status(200).json({ success: true, sent });
     } catch (error) {
         console.error('❌ Error enviando emails:', error);
-        // No bloqueamos el flujo del cliente si falla el email
         res.status(500).json({ success: false, error: error.message });
     }
 };

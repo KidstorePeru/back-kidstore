@@ -4,6 +4,7 @@ import {
   adminLoginController,
   getAllOrdersController,
   adminUpdateStatusController,
+  getRegisteredUsersController,
 } from '../controllers/admin.controller.js';
 
 const router = Router();
@@ -21,5 +22,6 @@ const requireAdmin = (req, res, next) => {
 router.post('/admin/login',          adminLoginController);
 router.get('/admin/orders',          requireAdmin, getAllOrdersController);
 router.patch('/admin/orders/status', requireAdmin, adminUpdateStatusController);
+router.get('/admin/users',           requireAdmin, getRegisteredUsersController);
 
 export default router;
