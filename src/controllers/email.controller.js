@@ -22,11 +22,23 @@ export const sendOrderEmails = async ({ email, customerName, orderId, total, ite
     `).join('');
 
     // ── Datos extra del formulario (Epic user, UID, etc.) ──
+    const FORM_LABELS = {
+        epicUser:    'Usuario Epic Games',
+        gameAccount: 'Cuenta / correo del juego',
+        gameName:    'Nombre en el juego',
+        platform:    'Plataforma',
+        riotId:      'Riot ID',
+        uid:         'UID',
+        server:      'Servidor',
+        trainerCode: 'Código de entrenador',
+        discordTag:  'Discord',
+    };
+    const formLabel = (k) => FORM_LABELS[k] || k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
     const formDataRows = Object.entries(formData || {})
-        .filter(([key, value]) => key !== 'notes' && value)
+        .filter(([key, value]) => !['notes', 'name', 'phone', 'email'].includes(key) && value)
         .map(([key, value]) => `
             <tr>
-                <td style="padding: 8px 0; color: #64748b; font-size: 13px; text-transform: capitalize;">${key.replace(/([A-Z])/g, ' $1')}</td>
+                <td style="padding: 8px 0; color: #64748b; font-size: 13px;">${formLabel(key)}</td>
                 <td style="padding: 8px 0; color: #e2e8f0; font-size: 13px; font-weight: 600; padding-left: 16px;">${value}</td>
             </tr>
         `).join('');

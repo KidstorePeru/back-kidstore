@@ -36,6 +36,18 @@ export const initDB = async () => {
                 END IF;
             END $$;
 
+            -- Nombre completo para "Datos de compra" (autorelleno del checkout).
+            -- El username es solo un alias; el nombre real va aparte.
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = 'full_name'
+                ) THEN
+                    ALTER TABLE users ADD COLUMN full_name VARCHAR(120) DEFAULT NULL;
+                END IF;
+            END $$;
+
             -- Tabla de administradores
             CREATE TABLE IF NOT EXISTS admins (
                 id         SERIAL PRIMARY KEY,

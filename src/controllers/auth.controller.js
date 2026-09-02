@@ -1,25 +1,31 @@
 // src/controllers/auth.controller.js
 import pool from '../db.js';
 import bcrypt from 'bcrypt';
+import { consumeVerifiedEmail } from './verification.controller.js';
 
 const SALT_ROUNDS = 10;
 
 export const registerController = async (req, res) => {
-    const { username, email, password, phone } = req.body;
+    const { username, email, password, phone, fullName } = req.body;
 
     if (!username || !email || !password) {
         return res.status(400).json({ success: false, error: 'Faltan campos obligatorios.' });
+    }
+
+    // El correo tiene que haber superado un código en los últimos 15 min.
+    if (!consumeVerifiedEmail(email)) {
+        return res.status(403).json({ success: false, error: 'Debes verificar tu correo con el código antes de crear la cuenta.' });
     }
 
     try {
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
         const query = `
-            INSERT INTO users (username, email, password, phone)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, username, email, phone
+            INSERT INTO users (username, email, password, phone, full_name, verified)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            RETURNING id, username, email, phone, full_name AS "fullName"
         `;
-        const values = [username, email, hashedPassword, phone || null];
+        const values = [username, email, hashedPassword, phone || null, fullName?.trim() || null];
 
         const result = await pool.query(query, values);
         res.status(201).json({ success: true, user: result.rows[0] });
@@ -34,23 +40,39 @@ export const registerController = async (req, res) => {
 
 /* ── Actualización de Perfil ── */
 export const updateUserController = async (req, res) => {
-    const { email, username, phone } = req.body;
+    // `email` identifica al usuario actual. `newEmail` (opcional) lo cambia y
+    // debe venir verificado por código (igual que en el registro).
+    const { email, username, phone, fullName, newEmail } = req.body;
 
-    // El email es necesario para identificar al usuario pero no se modificará
     if (!email) {
         return res.status(400).json({ error: 'Se requiere el correo para identificar al usuario.' });
     }
 
+    let emailToSet = null;
+    if (newEmail && String(newEmail).toLowerCase() !== String(email).toLowerCase()) {
+        if (!consumeVerifiedEmail(newEmail)) {
+            return res.status(403).json({ error: 'Verifica el nuevo correo con el código antes de cambiarlo.' });
+        }
+        emailToSet = String(newEmail).trim();
+    }
+
     try {
-        // Solo actualizamos username y phone basándonos en el email
         const query = `
-            UPDATE users 
-            SET username = COALESCE($1, username), 
-                phone = COALESCE($2, phone)
-            WHERE email = $3
-            RETURNING id, username, email, phone
+            UPDATE users
+            SET username  = COALESCE($1, username),
+                phone     = COALESCE($2, phone),
+                full_name = COALESCE($3, full_name),
+                email     = COALESCE($4, email)
+            WHERE email = $5
+            RETURNING id, username, email, phone, full_name AS "fullName"
         `;
-        const values = [username, phone, email];
+        const values = [
+            username ?? null,
+            phone ?? null,
+            fullName ?? null,
+            emailToSet,
+            email,
+        ];
 
         const result = await pool.query(query, values);
 
@@ -61,6 +83,9 @@ export const updateUserController = async (req, res) => {
         res.json({ message: 'Perfil actualizado correctamente', user: result.rows[0] });
     } catch (error) {
         console.error('Error al actualizar usuario:', error);
+        if (error.code === '23505') {
+            return res.status(400).json({ error: 'Ese usuario o correo ya está en uso.' });
+        }
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
@@ -92,7 +117,7 @@ export const loginController = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            user: { id: user.id, username: user.username, email: user.email, phone: user.phone },
+            user: { id: user.id, username: user.username, email: user.email, phone: user.phone, fullName: user.full_name },
         });
     } catch (err) {
         console.error('❌ Error en login:', err.message);

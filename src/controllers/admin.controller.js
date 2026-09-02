@@ -135,7 +135,7 @@ export const getAllOrdersController = async (req, res) => {
 export const getRegisteredUsersController = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, username, email, phone, created_at
+      `SELECT id, username, email, phone, full_name, created_at
          FROM users
        ORDER BY created_at DESC`
     );
@@ -143,6 +143,7 @@ export const getRegisteredUsersController = async (req, res) => {
     const users = result.rows.map(u => ({
       id:        String(u.id),
       username:  u.username,
+      fullName:  u.full_name || null,
       email:     u.email,
       phone:     u.phone || null,
       createdAt: u.created_at,

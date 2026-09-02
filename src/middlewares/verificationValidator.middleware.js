@@ -6,15 +6,13 @@ const verificationSchema = Joi.object({
         'string.email': 'Debe ser un email válido.',
         'any.required': 'El email es requerido.',
     }),
-    username: Joi.string().alphanum().min(3).max(30).required().messages({
-        'string.alphanum': 'El usuario solo puede tener letras y números.',
-        'string.min': 'El usuario debe tener al menos 3 caracteres.',
-        'any.required': 'El usuario es requerido.',
-    }),
+    // Solo se usa para saludar en el correo — no es crítico ni identifica a nadie.
+    username: Joi.string().min(1).max(50).optional().allow('', null),
+    lang: Joi.string().valid('ES', 'EN', 'es', 'en').optional(),
 });
 
 export const validateVerificationRequest = (req, res, next) => {
-    const { error } = verificationSchema.validate(req.body);
+    const { error } = verificationSchema.validate(req.body, { allowUnknown: true });
     if (error) {
         return res.status(400).json({ success: false, error: error.details[0].message });
     }
