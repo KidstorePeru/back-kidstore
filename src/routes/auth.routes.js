@@ -5,12 +5,14 @@ import {
     loginController,
     changePasswordController,
     updateUserController,
-    resetPasswordController
+    resetPasswordController,
+    checkAvailabilityController
 } from '../controllers/auth.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
+router.post('/auth/check-availability', checkAvailabilityController);
 router.post('/auth/register', registerController);
 router.post('/auth/login', loginController);
 router.post('/auth/change-password', authenticate, changePasswordController);

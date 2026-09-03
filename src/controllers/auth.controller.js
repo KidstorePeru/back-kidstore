@@ -38,6 +38,28 @@ export const registerController = async (req, res) => {
     }
 };
 
+/* ── Disponibilidad de usuario / correo (antes de enviar el código) ── */
+export const checkAvailabilityController = async (req, res) => {
+    const { username, email } = req.body;
+    if (!username && !email) {
+        return res.status(400).json({ success: false, error: 'Falta usuario o correo.' });
+    }
+    try {
+        const result = await pool.query(
+            `SELECT username, LOWER(email) AS email FROM users
+              WHERE ($1::text IS NOT NULL AND username = $1)
+                 OR ($2::text IS NOT NULL AND LOWER(email) = LOWER($2))`,
+            [username || null, email || null]
+        );
+        const usernameTaken = !!username && result.rows.some(r => r.username === username);
+        const emailTaken    = !!email && result.rows.some(r => r.email === String(email).toLowerCase());
+        res.status(200).json({ success: true, usernameTaken, emailTaken });
+    } catch (err) {
+        console.error('❌ Error comprobando disponibilidad:', err.message);
+        res.status(500).json({ success: false, error: 'Error interno del servidor.' });
+    }
+};
+
 /* ── Actualización de Perfil ── */
 export const updateUserController = async (req, res) => {
     // `email` identifica al usuario actual. `newEmail` (opcional) lo cambia y
