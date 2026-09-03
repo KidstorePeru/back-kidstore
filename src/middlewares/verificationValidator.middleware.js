@@ -9,6 +9,8 @@ const verificationSchema = Joi.object({
     // Solo se usa para saludar en el correo — no es crítico ni identifica a nadie.
     username: Joi.string().min(1).max(50).optional().allow('', null),
     lang: Joi.string().valid('ES', 'EN', 'es', 'en').optional(),
+    // Ajusta el texto del correo: registro / recuperación / cambio de correo.
+    purpose: Joi.string().valid('register', 'reset', 'email-change').optional(),
 });
 
 export const validateVerificationRequest = (req, res, next) => {

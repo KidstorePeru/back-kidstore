@@ -63,6 +63,7 @@ export const saveOrderController = async (req, res) => {
             paymentMethod: order.paymentMethod,
             formData:      fd,
             items:         order.items || [],
+            lang:          order.lang || 'ES',
         }).catch(err => console.error('❌ Error enviando correos del pedido:', err?.message || err));
     } catch (err) {
         await client.query('ROLLBACK');
