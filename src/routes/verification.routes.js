@@ -2,13 +2,21 @@
 import { Router } from 'express';
 import { sendVerificationController, verifyCodeController } from '../controllers/verification.controller.js';
 import { validateVerificationRequest } from '../middlewares/verificationValidator.middleware.js';
+import { rateLimit } from '../middlewares/rateLimit.middleware.js';
 
 const router = Router();
 
-// Envía el código OTP al email del usuario
-router.post('/send-verification', validateVerificationRequest, sendVerificationController);
+const tooMany = 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
 
-// Verifica el código OTP ingresado por el usuario
-router.post('/verify-code', verifyCodeController);
+// Envía el código OTP al correo
+router.post(
+    '/send-verification',
+    rateLimit({ windowMs: 15 * 60 * 1000, max: 8, message: tooMany }),
+    validateVerificationRequest,
+    sendVerificationController,
+);
+
+// Verifica el código OTP (además, cada código admite pocos intentos)
+router.post('/verify-code', rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: tooMany }), verifyCodeController);
 
 export default router;

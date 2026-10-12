@@ -2,14 +2,40 @@
 import pool from '../db.js';
 import bcrypt from 'bcrypt';
 import { consumeVerifiedEmail } from './verification.controller.js';
+import { createUserToken } from '../lib/session.js';
 
 const SALT_ROUNDS = 10;
+const MIN_PASSWORD = 6;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const validEmail = (e) => String(e).length <= 255 && EMAIL_RE.test(String(e));
 
+// Texto opcional del cuerpo: recortado, o null si viene vacío o no viene.
+const text = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+// Recorta al tamaño de la columna (teléfono 30, nombre completo 120) para no provocar un error de BD.
+const clip = (v, max) => (typeof v === 'string' ? v.slice(0, max) : v);
+
+// Datos públicos del usuario que se devuelven al front (nunca la contraseña).
+const publicUser = (u) => ({
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    phone: u.phone ?? null,
+    fullName: u.full_name ?? u.fullName ?? null,
+    createdAt: u.created_at ?? null,
+});
+
+/* ── Registro (después de verificar el correo con código) ── */
 export const registerController = async (req, res) => {
     const { username, email, password, phone, fullName } = req.body;
 
     if (!username || !email || !password) {
         return res.status(400).json({ success: false, error: 'Faltan campos obligatorios.' });
+    }
+    if (!validEmail(email) || String(username).trim().length < 3 || String(username).length > 50) {
+        return res.status(400).json({ success: false, error: 'Usuario o correo no válidos.' });
+    }
+    if (String(password).length < MIN_PASSWORD) {
+        return res.status(400).json({ success: false, error: `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.` });
     }
 
     // El correo tiene que haber superado un código en los últimos 15 min.
@@ -19,18 +45,16 @@ export const registerController = async (req, res) => {
 
     try {
         const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-
-        const query = `
-            INSERT INTO users (username, email, password, phone, full_name, verified)
-            VALUES ($1, $2, $3, $4, $5, TRUE)
-            RETURNING id, username, email, phone, full_name AS "fullName"
-        `;
-        const values = [username, email, hashedPassword, phone || null, fullName?.trim() || null];
-
-        const result = await pool.query(query, values);
-        res.status(201).json({ success: true, user: result.rows[0] });
+        const result = await pool.query(
+            `INSERT INTO users (username, email, password, phone, full_name, verified)
+             VALUES ($1, $2, $3, $4, $5, TRUE)
+             RETURNING id, username, email, password, phone, full_name, created_at`,
+            [String(username).trim(), String(email).trim(), hashedPassword, clip(text(phone), 30), clip(text(fullName), 120)],
+        );
+        const user = result.rows[0];
+        res.status(201).json({ success: true, user: publicUser(user), token: createUserToken(user) });
     } catch (error) {
-        console.error('Error en registro:', error);
+        console.error('Error en registro:', error.message);
         if (error.code === '23505') {
             return res.status(400).json({ success: false, error: 'El usuario o correo ya existe.' });
         }
@@ -49,10 +73,10 @@ export const checkAvailabilityController = async (req, res) => {
             `SELECT username, LOWER(email) AS email FROM users
               WHERE ($1::text IS NOT NULL AND username = $1)
                  OR ($2::text IS NOT NULL AND LOWER(email) = LOWER($2))`,
-            [username || null, email || null]
+            [username || null, email || null],
         );
-        const usernameTaken = !!username && result.rows.some(r => r.username === username);
-        const emailTaken    = !!email && result.rows.some(r => r.email === String(email).toLowerCase());
+        const usernameTaken = !!username && result.rows.some((r) => r.username === username);
+        const emailTaken    = !!email && result.rows.some((r) => r.email === String(email).toLowerCase());
         res.status(200).json({ success: true, usernameTaken, emailTaken });
     } catch (err) {
         console.error('❌ Error comprobando disponibilidad:', err.message);
@@ -60,51 +84,43 @@ export const checkAvailabilityController = async (req, res) => {
     }
 };
 
-/* ── Actualización de Perfil ── */
+/* ── Actualización de perfil (requiere sesión) ── */
 export const updateUserController = async (req, res) => {
-    // `email` identifica al usuario actual. `newEmail` (opcional) lo cambia y
-    // debe venir verificado por código (igual que en el registro).
-    const { email, username, phone, fullName, newEmail } = req.body;
-
-    if (!email) {
-        return res.status(400).json({ error: 'Se requiere el correo para identificar al usuario.' });
-    }
+    // El usuario sale del token (req.user). `newEmail` (opcional) cambia el correo y debe
+    // venir verificado por código, igual que en el registro.
+    const { username, phone, fullName, newEmail } = req.body;
 
     let emailToSet = null;
-    if (newEmail && String(newEmail).toLowerCase() !== String(email).toLowerCase()) {
+    if (newEmail && String(newEmail).toLowerCase() !== String(req.user.email).toLowerCase()) {
+        if (!validEmail(newEmail)) {
+            return res.status(400).json({ error: 'El nuevo correo no es válido.' });
+        }
         if (!consumeVerifiedEmail(newEmail)) {
             return res.status(403).json({ error: 'Verifica el nuevo correo con el código antes de cambiarlo.' });
         }
         emailToSet = String(newEmail).trim();
     }
+    if (username !== undefined && (String(username).trim().length < 3 || String(username).length > 50)) {
+        return res.status(400).json({ error: 'El nombre de usuario debe tener entre 3 y 50 caracteres.' });
+    }
 
     try {
-        const query = `
-            UPDATE users
-            SET username  = COALESCE($1, username),
-                phone     = COALESCE($2, phone),
-                full_name = COALESCE($3, full_name),
-                email     = COALESCE($4, email)
-            WHERE email = $5
-            RETURNING id, username, email, phone, full_name AS "fullName"
-        `;
-        const values = [
-            username ?? null,
-            phone ?? null,
-            fullName ?? null,
-            emailToSet,
-            email,
-        ];
-
-        const result = await pool.query(query, values);
-
+        const result = await pool.query(
+            `UPDATE users
+                SET username  = COALESCE($1, username),
+                    phone     = COALESCE($2, phone),
+                    full_name = COALESCE($3, full_name),
+                    email     = COALESCE($4, email)
+              WHERE id = $5
+            RETURNING id, username, email, phone, full_name, created_at`,
+            [text(username), phone === undefined ? null : clip(String(phone).trim(), 30), fullName === undefined ? null : clip(String(fullName).trim(), 120), emailToSet, req.user.id],
+        );
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Usuario no encontrado.' });
         }
-
-        res.json({ message: 'Perfil actualizado correctamente', user: result.rows[0] });
+        res.json({ message: 'Perfil actualizado correctamente', user: publicUser(result.rows[0]) });
     } catch (error) {
-        console.error('Error al actualizar usuario:', error);
+        console.error('Error al actualizar usuario:', error.message);
         if (error.code === '23505') {
             return res.status(400).json({ error: 'Ese usuario o correo ya está en uso.' });
         }
@@ -121,94 +137,87 @@ export const loginController = async (req, res) => {
     }
 
     try {
+        // El usuario distingue mayúsculas; el correo no.
         const result = await pool.query(
-            'SELECT * FROM users WHERE username = $1 OR email = $1',
-            [identifier]
+            'SELECT * FROM users WHERE username = $1 OR LOWER(email) = LOWER($1) ORDER BY (username = $1) DESC LIMIT 1',
+            [String(identifier).trim()],
         );
-
-        if (result.rows.length === 0) {
-            return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos.' });
-        }
-
-        const user  = result.rows[0];
-        const valid = await bcrypt.compare(password, user.password);
-
+        const user = result.rows[0];
+        const valid = user ? await bcrypt.compare(password, user.password) : false;
         if (!valid) {
             return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos.' });
         }
 
-        res.status(200).json({
-            success: true,
-            user: { id: user.id, username: user.username, email: user.email, phone: user.phone, fullName: user.full_name },
-        });
+        res.status(200).json({ success: true, user: publicUser(user), token: createUserToken(user) });
     } catch (err) {
         console.error('❌ Error en login:', err.message);
         res.status(500).json({ success: false, error: 'Error interno del servidor.' });
     }
 };
 
-/* ── Cambiar contraseña ── */
+/* ── Cambiar contraseña (requiere sesión) ── */
 export const changePasswordController = async (req, res) => {
-    const { username, currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
 
-    if (!username || !currentPassword || !newPassword) {
+    if (!currentPassword || !newPassword) {
         return res.status(400).json({ success: false, error: 'Todos los campos son requeridos.' });
     }
-    if (newPassword.length < 6) {
-        return res.status(400).json({ success: false, error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    if (String(newPassword).length < MIN_PASSWORD) {
+        return res.status(400).json({ success: false, error: `La nueva contraseña debe tener al menos ${MIN_PASSWORD} caracteres.` });
     }
 
     try {
-        const result = await pool.query(
-            'SELECT * FROM users WHERE username = $1',
-            [username]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, error: 'Usuario no encontrado.' });
-        }
-
-        const user  = result.rows[0];
-        const valid = await bcrypt.compare(currentPassword, user.password);
-
+        const valid = await bcrypt.compare(currentPassword, req.user.password);
         if (!valid) {
-            return res.status(401).json({ success: false, error: 'La contraseña actual es incorrecta.' });
+            // 400 (no 401): 401 queda reservado a "sesión no válida".
+            return res.status(400).json({ success: false, error: 'La contraseña actual es incorrecta.' });
         }
 
         const hashedNew = await bcrypt.hash(newPassword, SALT_ROUNDS);
-        await pool.query(
-            'UPDATE users SET password = $1 WHERE username = $2',
-            [hashedNew, username]
+        const result = await pool.query(
+            'UPDATE users SET password = $1 WHERE id = $2 RETURNING id, password',
+            [hashedNew, req.user.id],
         );
-
-        res.status(200).json({ success: true, message: 'Contraseña actualizada correctamente.' });
+        // El token anterior deja de valer (lleva la huella de la contraseña vieja): se entrega
+        // uno nuevo para que este dispositivo siga con la sesión abierta.
+        res.status(200).json({
+            success: true,
+            message: 'Contraseña actualizada correctamente.',
+            token: createUserToken(result.rows[0]),
+        });
     } catch (err) {
         console.error('❌ Error cambiando contraseña:', err.message);
         res.status(500).json({ success: false, error: 'Error interno del servidor.' });
     }
 };
-/* ── Reset password (after OTP verification) ── */
+
+/* ── Restablecer contraseña (tras verificar el código enviado al correo) ── */
 export const resetPasswordController = async (req, res) => {
     const { email, newPassword } = req.body;
 
     if (!email || !newPassword) {
         return res.status(400).json({ success: false, error: 'Email y nueva contraseña son requeridos.' });
     }
-    if (newPassword.length < 6) {
-        return res.status(400).json({ success: false, error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    if (String(newPassword).length < MIN_PASSWORD) {
+        return res.status(400).json({ success: false, error: `La nueva contraseña debe tener al menos ${MIN_PASSWORD} caracteres.` });
+    }
+    // Sin esto cualquiera podría cambiar la contraseña de otra cuenta sabiendo solo su correo.
+    if (!consumeVerifiedEmail(email)) {
+        return res.status(403).json({
+            success: false,
+            error: 'El código de verificación caducó o no es válido. Vuelve a solicitarlo.',
+        });
     }
 
     try {
         const hashedNew = await bcrypt.hash(newPassword, SALT_ROUNDS);
         const result = await pool.query(
-            'UPDATE users SET password = $1 WHERE email = $2',
-            [hashedNew, email]
+            'UPDATE users SET password = $1 WHERE LOWER(email) = LOWER($2)',
+            [hashedNew, String(email).trim()],
         );
-
         if (result.rowCount === 0) {
             return res.status(404).json({ success: false, error: 'Usuario no encontrado.' });
         }
-
         res.status(200).json({ success: true, message: 'Contraseña actualizada correctamente.' });
     } catch (err) {
         console.error('❌ Error reseteando contraseña:', err.message);

@@ -41,16 +41,3 @@ export const sendOrderEmails = async ({
 
     return { client: clientRes.status === 'fulfilled', admin: adminRes.status === 'fulfilled' };
 };
-
-/* ── Ruta POST /send-receipt (compatibilidad; el checkout ya no la necesita
-      porque saveOrderController envía los correos al guardar) ── */
-export const sendReceiptController = async (req, res) => {
-    const { email, customerName, orderId, total, items, paymentMethod, formData, currency, lang } = req.body;
-    try {
-        const sent = await sendOrderEmails({ email, customerName, orderId, total, items, paymentMethod, formData, currency, lang });
-        res.status(200).json({ success: true, sent });
-    } catch (error) {
-        console.error('❌ Error enviando emails:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-};

@@ -370,3 +370,102 @@ export function orderAdminEmail({ orderId, name, email, phone, items = [], total
         html: renderEmail({ preheader: `${name || email} — ${items.length} producto(s) — ${sym} ${Number(total).toFixed(2)}`, content, lang: 'ES' }),
     };
 }
+
+/* ─────────────────────────────────────────────────────────────
+   4. Cambio de estado del pedido — CLIENTE  (bilingüe)
+   Se envía cuando el administrador pasa el pedido a "en proceso", "entregado" o "cancelado".
+   ───────────────────────────────────────────────────────────── */
+
+const STATUS_T = {
+    ES: {
+        greeting: (n) => (n ? `Hola, ${esc(n)}:` : 'Hola:'),
+        itemsTitle: 'Productos del pedido',
+        cta: 'Escribir por WhatsApp',
+        waText: (id) => `Hola! Tengo una consulta sobre mi pedido #${id} de KidStore.`,
+        processing: {
+            subject: (id) => `Tu pedido #${id} está en proceso — KidStore`,
+            pre: (id) => `Verificamos tu pago y estamos procesando tu pedido #${id}.`,
+            eyebrow: 'Pedido en proceso',
+            h1: 'Estamos procesando tu pedido',
+            lead: (id) => `Verificamos tu pago y ya estamos trabajando en tu pedido <strong style="color:#111827;">#${id}</strong>. Te avisaremos por este medio en cuanto esté entregado.`,
+        },
+        delivered: {
+            subject: (id) => `Pedido #${id} entregado — KidStore`,
+            pre: (id) => `Completamos la entrega de tu pedido #${id}. ¡Gracias por tu compra!`,
+            eyebrow: 'Pedido entregado',
+            h1: '¡Tu pedido fue entregado!',
+            lead: (id) => `Completamos la entrega de tu pedido <strong style="color:#111827;">#${id}</strong>. ¡Gracias por comprar en KidStore! Si algo no está como esperabas, escríbenos y lo revisamos.`,
+        },
+        cancelled: {
+            subject: (id) => `Pedido #${id} cancelado — KidStore`,
+            pre: (id) => `Tu pedido #${id} fue cancelado.`,
+            eyebrow: 'Pedido cancelado',
+            h1: 'Tu pedido fue cancelado',
+            lead: (id) => `Tu pedido <strong style="color:#111827;">#${id}</strong> fue cancelado. Si crees que es un error o ya realizaste el pago, escríbenos por WhatsApp y lo revisamos.`,
+        },
+    },
+    EN: {
+        greeting: (n) => (n ? `Hi ${esc(n)},` : 'Hi,'),
+        itemsTitle: 'Items in this order',
+        cta: 'Message us on WhatsApp',
+        waText: (id) => `Hi! I have a question about my KidStore order #${id}.`,
+        processing: {
+            subject: (id) => `Your order #${id} is being processed — KidStore`,
+            pre: (id) => `We verified your payment and are processing order #${id}.`,
+            eyebrow: 'Order in progress',
+            h1: "We're processing your order",
+            lead: (id) => `We verified your payment and are working on your order <strong style="color:#111827;">#${id}</strong>. We'll let you know here as soon as it's delivered.`,
+        },
+        delivered: {
+            subject: (id) => `Order #${id} delivered — KidStore`,
+            pre: (id) => `Your order #${id} has been delivered. Thanks for your purchase!`,
+            eyebrow: 'Order delivered',
+            h1: 'Your order has been delivered!',
+            lead: (id) => `We've completed the delivery of your order <strong style="color:#111827;">#${id}</strong>. Thanks for shopping at KidStore! If anything isn't right, message us and we'll look into it.`,
+        },
+        cancelled: {
+            subject: (id) => `Order #${id} cancelled — KidStore`,
+            pre: (id) => `Your order #${id} was cancelled.`,
+            eyebrow: 'Order cancelled',
+            h1: 'Your order was cancelled',
+            lead: (id) => `Your order <strong style="color:#111827;">#${id}</strong> was cancelled. If you think this is a mistake or you already paid, message us on WhatsApp and we'll look into it.`,
+        },
+    },
+};
+
+export function orderStatusEmail({ orderId, name, status, items = [], lang = 'ES' }) {
+    const T = STATUS_T[lang] || STATUS_T.ES;
+    const S = T[status];
+    if (!S) return null; // "pending" u otros: no se avisa
+    const waHref = `https://wa.me/${BRAND.waNumber}?text=${encodeURIComponent(T.waText(orderId))}`;
+    const list = items
+        .map((it) => `<li style="margin:0 0 4px;">${esc(it.name)}<span style="color:#9aa3b2;">&nbsp;·&nbsp;×${Number(it.quantity) || 1}</span></li>`)
+        .join('');
+
+    const content = `
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:38px 36px 0;">
+        ${EYEBROW(S.eyebrow)}
+        ${H1(S.h1)}
+        ${LEAD(T.greeting(name))}
+        ${LEAD(S.lead(orderId))}
+      </td></tr>
+      ${list ? `
+      <tr><td style="padding:18px 36px 0;">
+        <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#f7f9fc; border:1px solid #eef1f5; border-radius:12px;">
+          <tr><td style="padding:14px 20px;">
+            <p style="margin:0 0 8px; font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#8a94a6;">${T.itemsTitle}</p>
+            <ul style="margin:0; padding:0 0 0 18px; font-size:14px; line-height:1.5; color:#111827;">${list}</ul>
+          </td></tr>
+        </table>
+      </td></tr>` : ''}
+      <tr><td style="padding:26px 36px 40px;">
+        ${button(waHref, T.cta, 'whatsapp')}
+      </td></tr>
+    </table>`;
+
+    return {
+        subject: S.subject(orderId),
+        html: renderEmail({ preheader: S.pre(orderId), content, lang }),
+    };
+}

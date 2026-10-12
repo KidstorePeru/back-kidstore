@@ -3,6 +3,8 @@ import Joi from 'joi';
 
 const verificationSchema = Joi.object({
     email: Joi.string().email().required().messages({
+        'string.base': 'Debe ser un email válido.',
+        'string.empty': 'El email es requerido.',
         'string.email': 'Debe ser un email válido.',
         'any.required': 'El email es requerido.',
     }),

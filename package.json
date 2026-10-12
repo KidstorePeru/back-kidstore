@@ -1,7 +1,7 @@
 {
-  "name": "ms-email-service",
+  "name": "back-kidstore",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/app.js",
   "type": "module",
   "scripts": {
     "dev": "nodemon src/app.js",
@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "API de KidStore: cuentas, códigos de verificación, pedidos, correos y panel de administración.",
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",

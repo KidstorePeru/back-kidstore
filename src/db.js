@@ -8,7 +8,14 @@ const { Pool } = pg;
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    // Railway exige SSL. PGSSLMODE=disable solo para una base de datos local de desarrollo.
+    ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+});
+
+// Si la base de datos cierra una conexión inactiva del pool (Railway lo hace), pg emite 'error'.
+// Sin este manejador Node lo trata como error no capturado y el backend se cae.
+pool.on('error', (err) => {
+    console.error('⚠️ Conexión inactiva de la BD cerrada:', err.message);
 });
 
 export const initDB = async () => {
@@ -48,15 +55,6 @@ export const initDB = async () => {
                 END IF;
             END $$;
 
-            -- Tabla de administradores
-            CREATE TABLE IF NOT EXISTS admins (
-                id         SERIAL PRIMARY KEY,
-                email      VARCHAR(255) UNIQUE NOT NULL,
-                password   VARCHAR(255) NOT NULL,
-                username   VARCHAR(100) DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-
             -- Pedidos
             CREATE TABLE IF NOT EXISTS orders (
                 id             SERIAL PRIMARY KEY,
@@ -81,6 +79,9 @@ export const initDB = async () => {
                     ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
                 END IF;
             END $$;
+
+            -- Idioma del cliente (ES / EN) para los correos de cambio de estado.
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS lang VARCHAR(2) DEFAULT 'ES';
 
             -- Migración anti-duplicados: si aún no existe la restricción única,
             -- borrar los pedidos duplicados (mismo email + order_id, se conserva
