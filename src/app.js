@@ -9,6 +9,7 @@ import ordersRoutes       from './routes/orders.routes.js';
 import authRoutes         from './routes/auth.routes.js';
 import adminRoutes        from './routes/admin.routes.js';
 import configRoutes       from './routes/config.routes.js';
+import seasonRoutes       from './routes/season.routes.js';
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ app.use('/', ordersRoutes);
 app.use('/', authRoutes);
 app.use('/', adminRoutes);
 app.use('/', configRoutes);
+app.use('/', seasonRoutes);
 
 // Ruta inexistente: JSON (como el resto de la API) en vez de la página HTML de Express.
 app.use((req, res) => res.status(404).json({ success: false, error: 'Ruta no encontrada.' }));

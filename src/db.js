@@ -125,6 +125,25 @@ export const initDB = async () => {
                 value      JSONB       NOT NULL,
                 updated_at TIMESTAMP   DEFAULT NOW()
             );
+
+            -- Modo de temporada elegido en el panel (Encendida / Apagada). Una sola fila; sin
+            -- fila = Automática (por fechas). until = fin de la temporada a la que se aplica.
+            CREATE TABLE IF NOT EXISTS season_override (
+                id         SMALLINT    PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                mode       VARCHAR(8)  NOT NULL,
+                season     VARCHAR(40) NOT NULL,
+                set_at     TIMESTAMPTZ NOT NULL,
+                until      TIMESTAMPTZ NOT NULL
+            );
+
+            -- Registro de auditoría de acciones del panel de administración.
+            CREATE TABLE IF NOT EXISTS admin_audit (
+                id         SERIAL      PRIMARY KEY,
+                action     VARCHAR(60) NOT NULL,
+                detail     JSONB       NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC);
         `);
         console.log('✅ Base de datos inicializada correctamente');
     } catch (err) {
