@@ -3,7 +3,9 @@ import pool from '../db.js';
 import { sendOrderEmails } from './email.controller.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CURRENCIES = ['PEN', 'USD', 'EUR'];
+// EUR y Bizum se retiraron (nov 2026): los pedidos antiguos se conservan, pero no se aceptan nuevos.
+const CURRENCIES = ['PEN', 'USD'];
+const RETIRED_METHODS = ['bizum'];
 const MAX_AMOUNT = 99_999_999; // NUMERIC(10,2)
 const MAX_INT = 2_147_483_647; // INTEGER
 
@@ -30,6 +32,11 @@ export const saveOrderController = async (req, res) => {
     if (!rawItems.length || rawItems.length > 100 || !Number.isFinite(total) || total < 0 || total > MAX_AMOUNT
         || !Number.isInteger(orderId) || orderId < 1 || orderId > MAX_INT || !order.paymentMethod) {
         return res.status(400).json({ success: false, error: 'Datos del pedido incompletos.' });
+    }
+    // Una moneda o método retirado no se guarda como si fuera soles: se rechaza.
+    if ((order.currency != null && !CURRENCIES.includes(order.currency))
+        || RETIRED_METHODS.includes(String(order.paymentMethod).toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Moneda o método de pago no disponible.' });
     }
     for (const item of rawItems) {
         const price = Number(item?.price);
